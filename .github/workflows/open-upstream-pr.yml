@@ -1,0 +1,57 @@
+name: Open upstream PR
+
+# Opens a pull request on GuillaumeBAUD-coder/open-math-agents from a proof branch of this fork.
+# Needs the repository secret UPSTREAM_PR_TOKEN: a classic personal access token with the
+# public_repo scope, created by the owner of this fork.
+# Proof branches are based on the branch oma-base (no changes to upstream files), so the pull
+# request contains only the new proof file. The upstream workflows were removed from this fork's
+# main so that they do not run here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Proof branch of this fork (oma/<problem id>)
+        required: true
+        type: string
+      body:
+        description: Pull request description
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: Only check that the token works
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
+          BRANCH: ${{ inputs.branch }}
+          BODY: ${{ inputs.body }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          UPSTREAM: GuillaumeBAUD-coder/open-math-agents
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then echo '::error::The secret UPSTREAM_PR_TOKEN is not set.'; exit 1; fi
+          if ! printf '%s' "$BRANCH" | grep -Eq '^oma/[A-Za-z0-9._-]+$'; then
+            echo '::error::The branch must look like oma/<problem id>.'; exit 1
+          fi
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          echo "Token belongs to: $(gh api user --jq .login)"
+          if [ "$DRY_RUN" = "true" ]; then echo 'Dry run: the token works; nothing was opened.'; exit 0; fi
+          gh api "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --silent
+          EXISTING="$(gh api "repos/$UPSTREAM/pulls?head=$OWNER:$BRANCH&state=all" --jq length)"
+          if [ "$EXISTING" != "0" ]; then echo "A pull request from $OWNER:$BRANCH already exists; nothing to do."; exit 0; fi
+          ID="${BRANCH#oma/}"
+          if [ -z "$BODY" ]; then BODY="Problem: https://lefttosolve.com/p/$ID"; fi
+          URL="$(gh api "repos/$UPSTREAM/pulls" -f title="$ID" -f head="$OWNER:$BRANCH" -f base=main -f body="$BODY" --jq .html_url)"
+          echo "Opened $URL"
+          echo "Opened $URL" >> "$GITHUB_STEP_SUMMARY"
